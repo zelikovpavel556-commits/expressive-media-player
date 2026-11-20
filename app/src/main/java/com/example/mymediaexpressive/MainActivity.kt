@@ -255,6 +255,9 @@ fun MusicList(activity: MainActivity) {
             TextButton(onClick = { activity.shuffleAll() }) {
                 Text("Перемешать")
             }
+            TextButton(onClick = { if (tracks.isNotEmpty()) activity.playTrack(tracks.first()) }) {
+                Text("Играть всё")
+            }
         }
         if (tracks.isEmpty()) {
             Box(
