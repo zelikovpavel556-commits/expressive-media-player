@@ -22,9 +22,7 @@ android {
     }
 
     kotlin {
-        compilerOptions {
-            jvmTarget.set("17")
-        }
+        jvmToolchain(17)
     }
 
     buildFeatures {
