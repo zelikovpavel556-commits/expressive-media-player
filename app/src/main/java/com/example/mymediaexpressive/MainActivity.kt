@@ -1,7 +1,15 @@
 package com.example.mymediaexpressive
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.PlaybackParams
 import android.net.Uri
@@ -73,7 +81,10 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.media.app.NotificationCompat as MediaNotificationCompat
+import androidx.media.session.MediaSessionCompat
 import coil.compose.AsyncImage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -1032,6 +1043,12 @@ class MainActivity : ComponentActivity() {
     private var player: MediaPlayer? = null
     private val playbackScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    private lateinit var mediaSession: MediaSessionCompat
+    private lateinit var audioManager: AudioManager
+    private var audioFocusRequest: AudioFocusRequest? = null
+    private val notificationChannelId = "expressive_player"
+    private val notificationId = 1
+
     var tracks by mutableStateOf(emptyList<Track>())
     var selectedTab by mutableStateOf(0)
     var currentTrackIndex by mutableStateOf(-1)
@@ -1067,6 +1084,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         loadPrefs()
+        setupNotificationChannel()
+        setupMediaSession()
+        requestAudioFocus()
         playbackScope.launch {
             while (isActive) {
                 delay(500)
@@ -1077,14 +1097,143 @@ class MainActivity : ComponentActivity() {
         setContent {
             ExpressivePlayerApp()
         }
-        if (hasAudioPermission()) loadTracks() else requestAudioPermission()
+        if (hasAudioPermission()) {
+            loadTracks()
+            restoreLastPlayback()
+        } else requestAudioPermission()
     }
 
     override fun onDestroy() {
+        saveLastPlayback()
+        mediaSession.release()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        }
         playbackScope.cancel()
         player?.release()
         player = null
         super.onDestroy()
+    }
+
+    private fun setupNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                notificationChannelId,
+                "Музыкальный плеер",
+                NotificationManager.IMPORTANCE_LOW,
+            )
+            channel.description = "Управление воспроизведением"
+            val nm = getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(channel)
+        }
+    }
+
+    private fun setupMediaSession() {
+        mediaSession = MediaSessionCompat(this, "ExpressivePlayer")
+        mediaSession.setCallback(object : MediaSessionCompat.Callback() {
+            override fun onPlay() { playPause() }
+            override fun onPause() { playPause() }
+            override fun onSkipToNext() { nextTrack() }
+            override fun onSkipToPrevious() { prevTrack() }
+            override fun onSeekTo(pos: Long) {
+                val dur = durationMs.takeIf { it > 0 } ?: 1L
+                seekTo(pos.toFloat() / dur.toFloat())
+            }
+        })
+        mediaSession.isActive = true
+    }
+
+    private fun requestAudioFocus() {
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
+            audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(attrs)
+                .setOnAudioFocusChangeListener { change ->
+                    when (change) {
+                        AudioManager.AUDIOFOCUS_LOSS,
+                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                            player?.pause()
+                            isPlaying = false
+                            updateNotification()
+                        }
+                    }
+                }
+                .build()
+            audioManager.requestAudioFocus(audioFocusRequest!!)
+        }
+    }
+
+    fun updateNotification() {
+        val track = currentTrack() ?: return
+        val nm = getSystemService(NotificationManager::class.java)
+        val intent = Intent(this, MainActivity::class.java)
+        val pi = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val notification = NotificationCompat.Builder(this, notificationChannelId)
+            .setContentTitle(track.title)
+            .setContentText(track.artist)
+            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setContentIntent(pi)
+            .setOngoing(isPlaying)
+            .setStyle(
+                MediaNotificationCompat.MediaStyle()
+                    .setMediaSession(mediaSession.sessionToken)
+                    .setShowActionsInCompactView(0, 1, 2),
+            )
+            .addAction(android.R.drawable.ic_media_previous, "Prev", null)
+            .addAction(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play, if (isPlaying) "Pause" else "Play", null)
+            .addAction(android.R.drawable.ic_media_next, "Next", null)
+            .build()
+        nm.notify(notificationId, notification)
+        mediaSession.setMetadata(
+            android.media.MediaMetadata.Builder()
+                .putString(android.media.MediaMetadata.METADATA_KEY_TITLE, track.title)
+                .putString(android.media.MediaMetadata.METADATA_KEY_ARTIST, track.artist)
+                .putLong(android.media.MediaMetadata.METADATA_KEY_DURATION, track.duration)
+                .build(),
+        )
+        mediaSession.setPlaybackState(
+            android.media.session.PlaybackState.Builder()
+                .setState(
+                    if (isPlaying) android.media.session.PlaybackState.STATE_PLAYING
+                    else android.media.session.PlaybackState.STATE_PAUSED,
+                    positionMs,
+                    playbackSpeed,
+                )
+                .setActions(
+                    android.media.session.PlaybackState.ACTION_PLAY or
+                        android.media.session.PlaybackState.ACTION_PAUSE or
+                        android.media.session.PlaybackState.ACTION_SKIP_TO_NEXT or
+                        android.media.session.PlaybackState.ACTION_SKIP_TO_PREVIOUS or
+                        android.media.session.PlaybackState.ACTION_SEEK_TO,
+                )
+                .build(),
+        )
+    }
+
+    private fun restoreLastPlayback() {
+        val lastId = prefs.getLong("lastTrackId", -1L)
+        if (lastId < 0) return
+        val idx = tracks.indexOfFirst { it.id == lastId }
+        if (idx < 0) return
+        currentTrackIndex = idx
+        val track = tracks[idx]
+        player?.release()
+        val p = MediaPlayer()
+        p.setDataSource(this, track.uri)
+        p.setOnPreparedListener { mp ->
+            durationMs = mp.duration.toLong()
+            val savedPos = prefs.getLong("lastPosition", 0L).toInt()
+            if (savedPos > 0) mp.seekTo(savedPos)
+            positionMs = savedPos.toLong()
+            applySpeed(p)
+            isPlaying = false
+        }
+        p.prepareAsync()
+        player = p
     }
 
     fun hasAudioPermission(): Boolean {
@@ -1100,6 +1249,15 @@ class MainActivity : ComponentActivity() {
 
     fun requestAudioPermission() {
         permissionLauncher.launch(audioPermission())
+    }
+
+    private fun saveLastPlayback() {
+        val track = currentTrack() ?: return
+        prefs.edit().apply {
+            putLong("lastTrackId", track.id)
+            putLong("lastPosition", positionMs)
+            apply()
+        }
     }
 
     fun loadTracks() {
@@ -1173,6 +1331,8 @@ class MainActivity : ComponentActivity() {
             applySpeed(p)
             mp.start()
             isPlaying = true
+            updateNotification()
+            saveLastPlayback()
         }
         p.setOnCompletionListener {
             onTrackCompleted()
@@ -1208,6 +1368,8 @@ class MainActivity : ComponentActivity() {
             p.start()
             isPlaying = true
         }
+        updateNotification()
+        saveLastPlayback()
     }
 
     fun nextTrack() {
