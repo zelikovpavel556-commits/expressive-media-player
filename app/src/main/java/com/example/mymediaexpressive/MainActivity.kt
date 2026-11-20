@@ -1232,7 +1232,7 @@ fun SettingsSheet(activity: MainActivity) {
                         Slider(
                             value = activity.eqBands.getOrElse(band) { 0 }.toFloat(),
                             onValueChange = { activity.setEqBand(band, it.toInt()) },
-                            valueRange = range.first.toFloat()..range.last.toFloat(),
+                            valueRange = range[0].toFloat()..range[1].toFloat(),
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -1757,7 +1757,7 @@ class MainActivity : ComponentActivity() {
         (0 until (equalizer?.numberOfBands ?: 0)).toList()
 
     fun eqBandRange(): IntArray =
-        equalizer?.getBandLevelRange() ?: intArrayOf(-1500, 1500)
+        equalizer?.getBandLevelRange()?.map { it.toInt() }?.toIntArray() ?: intArrayOf(-1500, 1500)
 
     fun eqBandFreq(band: Int): String {
         val hz = (equalizer?.getCenterFreq(band.toShort()) ?: 0) / 1000
