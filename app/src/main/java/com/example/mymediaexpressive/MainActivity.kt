@@ -254,8 +254,8 @@ class MainActivity : ComponentActivity() {
                 trackName = "Material Expressive Mix",
                 onPlayPause = ::onPlayPauseClicked,
                 onSeek = ::seekTo,
-                onShuffleChange = ::setShuffleEnabled,
-                onRepeatChange = ::setRepeatEnabled,
+                onShuffleChange = { shuffleEnabled = it },
+                onRepeatChange = { repeatEnabled = it },
             )
         }
     }
@@ -279,13 +279,5 @@ class MainActivity : ComponentActivity() {
         if (duration > 0) {
             player.seekTo((fraction * duration).toInt())
         }
-    }
-
-    fun setShuffleEnabled(enabled: Boolean) {
-        shuffleEnabled = enabled
-    }
-
-    fun setRepeatEnabled(enabled: Boolean) {
-        repeatEnabled = enabled
     }
 }
