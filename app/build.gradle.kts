@@ -23,7 +23,7 @@ android {
 
     kotlin {
         compilerOptions {
-            jvmTarget = "17"
+            jvmTarget.set("17")
         }
     }
 
