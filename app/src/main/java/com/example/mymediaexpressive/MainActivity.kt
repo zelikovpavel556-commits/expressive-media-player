@@ -318,7 +318,7 @@ fun TrackRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .pointerInput(Unit) { androidx.compose.foundation.gestures.detectTapGestures(onLongPress = { onLongClick() }) }
+            .pointerInput(Unit) { detectTapGestures(onLongPress = { onLongClick() }) }
             .clickable(onClick = onClick)
             .background(
                 if (isCurrent) MaterialTheme.colorScheme.primaryContainer
