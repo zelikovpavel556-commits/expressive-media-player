@@ -1,8 +1,10 @@
 package com.example.mymediaexpressive
 
 import android.content.Context
+import android.content.Context
 import android.content.pm.PackageManager
 import android.media.MediaPlayer
+import android.media.PlaybackParams
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -35,12 +37,14 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -75,6 +79,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class Track(
     val id: Long,
@@ -110,7 +116,12 @@ fun ExpressivePlayerApp() {
         if (permissionGranted && activity.tracks.isEmpty()) activity.loadTracks()
     }
 
-    ExpressiveMediaTheme {
+    val darkTheme = when (activity.themeMode) {
+        1 -> false
+        2 -> true
+        else -> androidx.compose.foundation.isSystemInDarkTheme()
+    }
+    ExpressiveMediaTheme(darkTheme = darkTheme) {
         if (!permissionGranted) {
             Box(
                 modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
@@ -132,14 +143,20 @@ fun ExpressivePlayerApp() {
             }
             return@ExpressiveMediaTheme
         }
+
         Scaffold(
             topBar = {
-                TopAppBar(title = {
-                    Text("Музыка", style = MaterialTheme.typography.titleLarge)
-                })
+                TopAppBar(
+                    title = { Text("Музыка", style = MaterialTheme.typography.titleLarge) },
+                    actions = {
+                        TextButton(onClick = { activity.showSettings = true }) {
+                            Text("Настр.")
+                        }
+                    },
+                )
             },
             bottomBar = {
-                if (activity.currentTrackIndex >= 0) {
+                if (activity.currentTrack() != null) {
                     MiniPlayer(activity)
                 }
             },
@@ -161,10 +178,16 @@ fun ExpressivePlayerApp() {
                         onClick = { activity.selectedTab = 1 },
                         text = { Text("Плейлисты") },
                     )
+                    Tab(
+                        selected = activity.selectedTab == 2,
+                        onClick = { activity.selectedTab = 2 },
+                        text = { Text("Избранное") },
+                    )
                 }
                 when (activity.selectedTab) {
                     0 -> MusicList(activity)
                     1 -> PlaylistsTab(activity)
+                    2 -> FavoritesTab(activity)
                 }
             }
         }
@@ -172,51 +195,82 @@ fun ExpressivePlayerApp() {
         if (activity.showPlayer) {
             FullPlayer(activity)
         }
+        if (activity.showSettings) {
+            SettingsSheet(activity)
+        }
     }
 }
 
 @Composable
 fun MusicList(activity: MainActivity) {
-    val tracks = activity.tracks
-    if (tracks.isEmpty()) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
+    val tracks = activity.visibleTracks()
+    Column(modifier = Modifier.fillMaxSize()) {
+        OutlinedTextField(
+            value = activity.searchQuery,
+            onValueChange = { activity.searchQuery = it },
+            label = { Text("Поиск") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            singleLine = true,
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                text = "В Download и Music ничего не найдено",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            TextButton(onClick = { activity.sortMode = 0 }) {
+                Text(if (activity.sortMode == 0) "✓ Имя" else "Имя")
+            }
+            TextButton(onClick = { activity.sortMode = 1 }) {
+                Text(if (activity.sortMode == 1) "✓ Исполнитель" else "Исполнитель")
+            }
+            TextButton(onClick = { activity.sortMode = 2 }) {
+                Text(if (activity.sortMode == 2) "✓ Длительность" else "Длительность")
+            }
         }
-        return
-    }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-    ) {
-        item {
-            Card(
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                ),
-                modifier = Modifier.fillMaxWidth(),
+        if (tracks.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
             ) {
-                Column {
-                    tracks.forEachIndexed { index, track ->
-                        TrackRow(
-                            track = track,
-                            index = index,
-                            isCurrent = index == activity.currentTrackIndex,
-                            onClick = { activity.playTrack(index) },
-                        )
-                        if (index < tracks.lastIndex) {
-                            HorizontalDivider(
-                                thickness = 0.5.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant,
-                                modifier = Modifier.padding(horizontal = 16.dp),
+                Text(
+                    text = "Ничего не найдено",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            return
+        }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+        ) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column {
+                        tracks.forEachIndexed { index, track ->
+                            TrackRow(
+                                track = track,
+                                isCurrent = track.id == activity.currentTrack()?.id,
+                                isFavorite = activity.isFavorite(track.id),
+                                onClick = { activity.playTrack(track) },
+                                onFavorite = { activity.toggleFavorite(track.id) },
                             )
+                            if (index < tracks.lastIndex) {
+                                HorizontalDivider(
+                                    thickness = 0.5.dp,
+                                    color = MaterialTheme.colorScheme.outlineVariant,
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -226,7 +280,13 @@ fun MusicList(activity: MainActivity) {
 }
 
 @Composable
-fun TrackRow(track: Track, index: Int, isCurrent: Boolean, onClick: () -> Unit) {
+fun TrackRow(
+    track: Track,
+    isCurrent: Boolean,
+    isFavorite: Boolean,
+    onClick: () -> Unit,
+    onFavorite: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -265,6 +325,9 @@ fun TrackRow(track: Track, index: Int, isCurrent: Boolean, onClick: () -> Unit) 
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        TextButton(onClick = onFavorite) {
+            Text(if (isFavorite) "♥" else "♡")
+        }
         Text(
             text = formatTime(track.duration),
             style = MaterialTheme.typography.labelSmall,
@@ -275,21 +338,154 @@ fun TrackRow(track: Track, index: Int, isCurrent: Boolean, onClick: () -> Unit) 
 
 @Composable
 fun PlaylistsTab(activity: MainActivity) {
-    Box(
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedTextField(
+                value = activity.newPlaylistName,
+                onValueChange = { activity.newPlaylistName = it },
+                label = { Text("Имя плейлиста") },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+            )
+            FilledTonalButton(onClick = { activity.createPlaylist() }) {
+                Text("Создать")
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        val playlists = activity.playlists
+        if (playlists.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "Плейлистов пока нет",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            return
+        }
+        LazyColumn {
+            itemsIndexed(playlists) { index, pl ->
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .clickable { activity.openPlaylist(index) },
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = pl.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = "${pl.trackIds.size} треков",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        TextButton(onClick = { activity.deletePlaylist(index) }) {
+                            Text("Удалить")
+                        }
+                    }
+                }
+            }
+        }
+        if (activity.openedPlaylistIndex >= 0) {
+            val pl = playlists.getOrNull(activity.openedPlaylistIndex)
+            if (pl != null) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "Треки: ${pl.name}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                val plTracks = activity.tracks.filter { it.id in pl.trackIds }
+                LazyColumn {
+                    itemsIndexed(plTracks) { _, track ->
+                        TrackRow(
+                            track = track,
+                            isCurrent = track.id == activity.currentTrack()?.id,
+                            isFavorite = activity.isFavorite(track.id),
+                            onClick = { activity.playTrack(track) },
+                            onFavorite = { activity.toggleFavorite(track.id) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FavoritesTab(activity: MainActivity) {
+    val favTracks = activity.tracks.filter { activity.isFavorite(it.id) }
+    if (favTracks.isEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "Избранных пока нет",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        return
+    }
+    LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
     ) {
-        Text(
-            text = "Плейлисты скоро появятся",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        item {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column {
+                    favTracks.forEachIndexed { index, track ->
+                        TrackRow(
+                            track = track,
+                            isCurrent = track.id == activity.currentTrack()?.id,
+                            isFavorite = true,
+                            onClick = { activity.playTrack(track) },
+                            onFavorite = { activity.toggleFavorite(track.id) },
+                        )
+                        if (index < favTracks.lastIndex) {
+                            HorizontalDivider(
+                                thickness = 0.5.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
 @Composable
 fun MiniPlayer(activity: MainActivity) {
-    val track = activity.tracks.getOrNull(activity.currentTrackIndex) ?: return
+    val track = activity.currentTrack() ?: return
     val fraction = if (activity.durationMs > 0)
         activity.positionMs.toFloat() / activity.durationMs.toFloat() else 0f
     Card(
@@ -355,7 +551,7 @@ fun MiniPlayer(activity: MainActivity) {
 
 @Composable
 fun FullPlayer(activity: MainActivity) {
-    val track = activity.tracks.getOrNull(activity.currentTrackIndex) ?: return
+    val track = activity.currentTrack() ?: return
     val fraction = if (activity.durationMs > 0)
         activity.positionMs.toFloat() / activity.durationMs.toFloat() else 0f
 
@@ -426,7 +622,28 @@ fun FullPlayer(activity: MainActivity) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(16.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FilledTonalButton(onClick = { activity.toggleShuffle() }) {
+                    Text(if (activity.shuffleEnabled) "Shuffle ON" else "Shuffle")
+                }
+                FilledTonalButton(onClick = { activity.cycleRepeat() }) {
+                    Text(
+                        when (activity.repeatMode) {
+                            1 -> "Repeat All"
+                            2 -> "Repeat One"
+                            else -> "Repeat Off"
+                        },
+                    )
+                }
+                FilledTonalButton(onClick = { activity.toggleFavorite(track.id) }) {
+                    Text(if (activity.isFavorite(track.id)) "♥" else "♡")
+                }
+            }
+            Spacer(Modifier.height(16.dp))
             Row(
                 horizontalArrangement = Arrangement.spacedBy(24.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -441,8 +658,76 @@ fun FullPlayer(activity: MainActivity) {
                     Text("Next")
                 }
             }
+            Spacer(Modifier.height(12.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FilledTonalButton(onClick = { activity.cycleSpeed() }) {
+                    Text("Speed ${activity.playbackSpeed}x")
+                }
+                FilledTonalButton(onClick = { activity.cycleSleepTimer() }) {
+                    Text(
+                        if (activity.sleepTimerMinutes == 0) "Sleep off"
+                        else "Sleep ${activity.sleepTimerMinutes}m",
+                    )
+                }
+            }
             Spacer(Modifier.weight(1f))
             FilledTonalButton(onClick = { activity.showPlayer = false }) {
+                Text("Закрыть")
+            }
+        }
+    }
+}
+
+@Composable
+fun SettingsSheet(activity: MainActivity) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+        ) {
+            Text(
+                text = "Настройки",
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Тёмная тема", style = MaterialTheme.typography.bodyLarge)
+                Switch(
+                    checked = activity.themeMode == 2,
+                    onCheckedChange = { activity.themeMode = if (it) 2 else 1 },
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Следовать системе", style = MaterialTheme.typography.bodyLarge)
+                Switch(
+                    checked = activity.themeMode == 0,
+                    onCheckedChange = { if (it) activity.themeMode = 0 },
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+            FilledTonalButton(onClick = { activity.loadTracks() }) {
+                Text("Пересканировать музыку")
+            }
+            Spacer(Modifier.height(8.dp))
+            FilledTonalButton(onClick = { activity.showSettings = false }) {
                 Text("Закрыть")
             }
         }
@@ -510,6 +795,20 @@ class MainActivity : ComponentActivity() {
     var positionMs by mutableStateOf(0L)
     var durationMs by mutableStateOf(0L)
     var showPlayer by mutableStateOf(false)
+    var showSettings by mutableStateOf(false)
+    var searchQuery by mutableStateOf("")
+    var sortMode by mutableStateOf(0)
+    var shuffleEnabled by mutableStateOf(false)
+    var repeatMode by mutableStateOf(0)
+    var playbackSpeed by mutableStateOf(1.0f)
+    var sleepTimerMinutes by mutableStateOf(0)
+    var themeMode by mutableStateOf(0)
+    var newPlaylistName by mutableStateOf("")
+    var openedPlaylistIndex by mutableStateOf(-1)
+    var playlists by mutableStateOf(emptyList<Playlist>())
+    var favorites by mutableStateOf(emptySet<Long>())
+
+    private val prefs by lazy { getSharedPreferences("player", Context.MODE_PRIVATE) }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -519,10 +818,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        loadPrefs()
         playbackScope.launch {
             while (isActive) {
                 delay(500)
                 positionMs = (player?.currentPosition ?: 0).toLong()
+                checkSleepTimer()
             }
         }
         setContent {
@@ -536,6 +837,12 @@ class MainActivity : ComponentActivity() {
         player?.release()
         player = null
         super.onDestroy()
+    }
+
+    fun isDarkTheme(): Boolean = when (themeMode) {
+        1 -> false
+        2 -> true
+        else -> androidx.compose.foundation.isSystemInDarkTheme()
     }
 
     fun hasAudioPermission(): Boolean {
@@ -590,23 +897,61 @@ class MainActivity : ComponentActivity() {
         tracks = list
     }
 
-    fun playTrack(index: Int) {
-        if (index < 0 || index >= tracks.size) return
-        currentTrackIndex = index
-        val track = tracks[index]
+    fun visibleTracks(): List<Track> {
+        val q = searchQuery.trim().lowercase()
+        val filtered = if (q.isEmpty()) tracks else tracks.filter {
+            it.title.lowercase().contains(q) || it.artist.lowercase().contains(q)
+        }
+        return when (sortMode) {
+            1 -> filtered.sortedBy { it.artist }
+            2 -> filtered.sortedByDescending { it.duration }
+            else -> filtered.sortedBy { it.title }
+        }
+    }
+
+    fun currentTrack(): Track? = tracks.getOrNull(currentTrackIndex)
+
+    fun playTrack(track: Track) {
+        val idx = tracks.indexOfFirst { it.id == track.id }
+        if (idx < 0) return
+        currentTrackIndex = idx
+        startPlayback(track)
+    }
+
+    private fun startPlayback(track: Track) {
         player?.release()
         val p = MediaPlayer()
         p.setDataSource(this, track.uri)
         p.setOnPreparedListener { mp ->
             durationMs = mp.duration.toLong()
+            applySpeed(p)
             mp.start()
             isPlaying = true
         }
         p.setOnCompletionListener {
-            nextTrack()
+            onTrackCompleted()
         }
         p.prepareAsync()
         player = p
+    }
+
+    private fun onTrackCompleted() {
+        when (repeatMode) {
+            2 -> {
+                // repeat one
+                currentTrack()?.let { startPlayback(it) }
+            }
+            else -> {
+                if (shuffleEnabled) {
+                    if (tracks.isNotEmpty()) {
+                        val next = (0 until tracks.size).random()
+                        playTrack(tracks[next])
+                    }
+                } else {
+                    nextTrack()
+                }
+            }
+        }
     }
 
     fun playPause() {
@@ -622,14 +967,21 @@ class MainActivity : ComponentActivity() {
 
     fun nextTrack() {
         if (tracks.isEmpty()) return
-        val next = (currentTrackIndex + 1) % tracks.size
-        playTrack(next)
+        val next = if (shuffleEnabled) (0 until tracks.size).random()
+        else (currentTrackIndex + 1) % tracks.size
+        playTrack(tracks[next])
     }
 
     fun prevTrack() {
         if (tracks.isEmpty()) return
+        val pos = positionMs
+        if (pos > 3000) {
+            player?.seekTo(0)
+            positionMs = 0
+            return
+        }
         val prev = if (currentTrackIndex <= 0) tracks.size - 1 else currentTrackIndex - 1
-        playTrack(prev)
+        playTrack(tracks[prev])
     }
 
     fun seekTo(fraction: Float) {
@@ -637,6 +989,124 @@ class MainActivity : ComponentActivity() {
         val dur = durationMs
         if (dur > 0) {
             p.seekTo((fraction * dur).toInt())
+        }
+    }
+
+    fun toggleShuffle() {
+        shuffleEnabled = !shuffleEnabled
+    }
+
+    fun cycleRepeat() {
+        repeatMode = (repeatMode + 1) % 3
+    }
+
+    fun toggleFavorite(id: Long) {
+        favorites = if (id in favorites) favorites - id else favorites + id
+        savePrefs()
+    }
+
+    fun isFavorite(id: Long): Boolean = id in favorites
+
+    fun cycleSpeed() {
+        playbackSpeed = when (playbackSpeed) {
+            1.0f -> 1.25f
+            1.25f -> 1.5f
+            1.5f -> 2.0f
+            else -> 1.0f
+        }
+        player?.let { applySpeed(it) }
+    }
+
+    private fun applySpeed(p: MediaPlayer) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                p.playbackParams = PlaybackParams().setSpeed(playbackSpeed)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    fun cycleSleepTimer() {
+        sleepTimerMinutes = when (sleepTimerMinutes) {
+            0 -> 15
+            15 -> 30
+            30 -> 45
+            45 -> 60
+            else -> 0
+        }
+    }
+
+    private fun checkSleepTimer() {
+        if (sleepTimerMinutes == 0) return
+        // simple: stop after minutes from first set; track via a stored end time
+        if (sleepTimerEnd == 0L) {
+            sleepTimerEnd = System.currentTimeMillis() + sleepTimerMinutes * 60_000L
+        }
+        if (System.currentTimeMillis() >= sleepTimerEnd) {
+            player?.pause()
+            isPlaying = false
+            sleepTimerMinutes = 0
+            sleepTimerEnd = 0L
+        }
+    }
+
+    private var sleepTimerEnd: Long = 0L
+
+    // ---- Playlists (local) ----
+    data class Playlist(val name: String, val trackIds: MutableList<Long> = mutableListOf())
+
+    fun createPlaylist() {
+        val name = newPlaylistName.trim()
+        if (name.isEmpty()) return
+        playlists = playlists + Playlist(name)
+        newPlaylistName = ""
+        savePrefs()
+    }
+
+    fun deletePlaylist(index: Int) {
+        if (index !in playlists.indices) return
+        playlists = playlists.filterIndexed { i, _ -> i != index }
+        if (openedPlaylistIndex == index) openedPlaylistIndex = -1
+        savePrefs()
+    }
+
+    fun openPlaylist(index: Int) {
+        openedPlaylistIndex = if (openedPlaylistIndex == index) -1 else index
+    }
+
+    // ---- prefs ----
+    private fun loadPrefs() {
+        themeMode = prefs.getInt("themeMode", 0)
+        favorites = prefs.getStringSet("favorites", emptySet())?.map { it.toLong() }?.toSet() ?: emptySet()
+        val plJson = prefs.getString("playlists", "[]") ?: "[]"
+        val arr = JSONArray(plJson)
+        val list = mutableListOf<Playlist>()
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            val name = o.getString("name")
+            val ids = o.getJSONArray("ids")
+            val pl = Playlist(name)
+            for (j in 0 until ids.length()) pl.trackIds.add(ids.getLong(j))
+            list.add(pl)
+        }
+        playlists = list
+    }
+
+    private fun savePrefs() {
+        prefs.edit().apply {
+            putInt("themeMode", themeMode)
+            putStringSet("favorites", favorites.map { it.toString() }.toSet())
+            val arr = JSONArray()
+            playlists.forEach { pl ->
+                val o = JSONObject()
+                o.put("name", pl.name)
+                val ids = JSONArray()
+                pl.trackIds.forEach { ids.put(it) }
+                o.put("ids", ids)
+                arr.put(o)
+            }
+            putString("playlists", arr.toString())
+            apply()
         }
     }
 }
