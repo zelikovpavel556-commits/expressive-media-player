@@ -1,7 +1,6 @@
 package com.example.mymediaexpressive
 
 import android.content.Context
-import android.content.Context
 import android.content.pm.PackageManager
 import android.media.MediaPlayer
 import android.media.PlaybackParams
@@ -837,12 +836,6 @@ class MainActivity : ComponentActivity() {
         player?.release()
         player = null
         super.onDestroy()
-    }
-
-    fun isDarkTheme(): Boolean = when (themeMode) {
-        1 -> false
-        2 -> true
-        else -> androidx.compose.foundation.isSystemInDarkTheme()
     }
 
     fun hasAudioPermission(): Boolean {
