@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "com.example.mymediaexpressive"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.example.mymediaexpressive"
         minSdk = 31
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 1
         versionName = "1.0"
     }
