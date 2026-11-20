@@ -1043,11 +1043,8 @@ class MainActivity : ComponentActivity() {
     private var player: MediaPlayer? = null
     private val playbackScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    private lateinit var mediaSession: MediaSessionCompat
     private lateinit var audioManager: AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
-    private val notificationChannelId = "expressive_player"
-    private val notificationId = 1
 
     var tracks by mutableStateOf(emptyList<Track>())
     var selectedTab by mutableStateOf(0)
@@ -1084,8 +1081,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         loadPrefs()
-        setupNotificationChannel()
-        setupMediaSession()
         requestAudioFocus()
         playbackScope.launch {
             while (isActive) {
@@ -1105,7 +1100,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         saveLastPlayback()
-        mediaSession.release()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
         }
@@ -1113,34 +1107,6 @@ class MainActivity : ComponentActivity() {
         player?.release()
         player = null
         super.onDestroy()
-    }
-
-    private fun setupNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                notificationChannelId,
-                "Музыкальный плеер",
-                NotificationManager.IMPORTANCE_LOW,
-            )
-            channel.description = "Управление воспроизведением"
-            val nm = getSystemService(NotificationManager::class.java)
-            nm.createNotificationChannel(channel)
-        }
-    }
-
-    private fun setupMediaSession() {
-        mediaSession = MediaSessionCompat(this, "ExpressivePlayer")
-        mediaSession.setCallback(object : MediaSessionCompat.Callback() {
-            override fun onPlay() { playPause() }
-            override fun onPause() { playPause() }
-            override fun onSkipToNext() { nextTrack() }
-            override fun onSkipToPrevious() { prevTrack() }
-            override fun onSeekTo(pos: Long) {
-                val dur = durationMs.takeIf { it > 0 } ?: 1L
-                seekTo(pos.toFloat() / dur.toFloat())
-            }
-        })
-        mediaSession.isActive = true
     }
 
     private fun requestAudioFocus() {
@@ -1158,60 +1124,12 @@ class MainActivity : ComponentActivity() {
                         AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                             player?.pause()
                             isPlaying = false
-                            updateNotification()
                         }
                     }
                 }
                 .build()
             audioManager.requestAudioFocus(audioFocusRequest!!)
         }
-    }
-
-    fun updateNotification() {
-        val track = currentTrack() ?: return
-        val nm = getSystemService(NotificationManager::class.java)
-        val intent = Intent(this, MainActivity::class.java)
-        val pi = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val notification = NotificationCompat.Builder(this, notificationChannelId)
-            .setContentTitle(track.title)
-            .setContentText(track.artist)
-            .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentIntent(pi)
-            .setOngoing(isPlaying)
-            .setStyle(
-                MediaNotificationCompat.MediaStyle()
-                    .setMediaSession(mediaSession.sessionToken)
-                    .setShowActionsInCompactView(0, 1, 2),
-            )
-            .addAction(android.R.drawable.ic_media_previous, "Prev", null)
-            .addAction(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play, if (isPlaying) "Pause" else "Play", null)
-            .addAction(android.R.drawable.ic_media_next, "Next", null)
-            .build()
-        nm.notify(notificationId, notification)
-        mediaSession.setMetadata(
-            android.media.MediaMetadata.Builder()
-                .putString(android.media.MediaMetadata.METADATA_KEY_TITLE, track.title)
-                .putString(android.media.MediaMetadata.METADATA_KEY_ARTIST, track.artist)
-                .putLong(android.media.MediaMetadata.METADATA_KEY_DURATION, track.duration)
-                .build(),
-        )
-        mediaSession.setPlaybackState(
-            android.media.session.PlaybackState.Builder()
-                .setState(
-                    if (isPlaying) android.media.session.PlaybackState.STATE_PLAYING
-                    else android.media.session.PlaybackState.STATE_PAUSED,
-                    positionMs,
-                    playbackSpeed,
-                )
-                .setActions(
-                    android.media.session.PlaybackState.ACTION_PLAY or
-                        android.media.session.PlaybackState.ACTION_PAUSE or
-                        android.media.session.PlaybackState.ACTION_SKIP_TO_NEXT or
-                        android.media.session.PlaybackState.ACTION_SKIP_TO_PREVIOUS or
-                        android.media.session.PlaybackState.ACTION_SEEK_TO,
-                )
-                .build(),
-        )
     }
 
     private fun restoreLastPlayback() {
@@ -1331,7 +1249,6 @@ class MainActivity : ComponentActivity() {
             applySpeed(p)
             mp.start()
             isPlaying = true
-            updateNotification()
             saveLastPlayback()
         }
         p.setOnCompletionListener {
@@ -1368,7 +1285,6 @@ class MainActivity : ComponentActivity() {
             p.start()
             isPlaying = true
         }
-        updateNotification()
         saveLastPlayback()
     }
 
