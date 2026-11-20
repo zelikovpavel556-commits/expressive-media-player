@@ -18,13 +18,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MotionScheme
@@ -49,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CoroutineScope
@@ -97,7 +94,7 @@ fun ExpressivePlayerApp(
             text = trackName,
             style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onSurface,
-            textAlign = Alignment.Center,
+            textAlign = TextAlign.Center,
         )
         Spacer(modifier = Modifier.height(8.dp))
         CircularWavyProgressIndicator(
@@ -133,7 +130,7 @@ fun ExpressivePlayerApp(
         }
         Spacer(modifier = Modifier.height(28.dp))
         Row(
-            modifier = Modifier.fillMaxWidth,
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -146,10 +143,7 @@ fun ExpressivePlayerApp(
                 onClick = onPlayPause,
                 modifier = Modifier.size(64.dp),
             ) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
-                )
+                Text(text = if (isPlaying) "Pause" else "Play")
             }
             Spacer(modifier = Modifier.width(16.dp))
             Switch(
@@ -247,7 +241,7 @@ class MainActivity : ComponentActivity() {
         playbackScope.launch {
             while (isActive) {
                 delay(500)
-                positionState.value = player?.currentPosition ?: 0L
+                positionState.value = (player?.currentPosition ?: 0).toLong()
             }
         }
         setContent {
