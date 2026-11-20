@@ -1218,6 +1218,42 @@ fun SettingsSheet(activity: MainActivity) {
             FilledTonalButton(onClick = { activity.clearQueue() }) {
                 Text("Очистить очередь")
             }
+            Spacer(Modifier.height(12.dp))
+            if (activity.eqEnabled && activity.equalizerBands().isNotEmpty()) {
+                Text("Эквалайзер (полосы)", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                activity.equalizerBands().forEachIndexed { band, _ ->
+                    val range = activity.eqBandRange()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("${activity.eqBandFreq(band)}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(48.dp))
+                        Slider(
+                            value = activity.eqBands.getOrElse(band) { 0 }.toFloat(),
+                            onValueChange = { activity.setEqBand(band, it.toInt()) },
+                            valueRange = range.first.toFloat()..range.last.toFloat(),
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text("BassBoost сила", style = MaterialTheme.typography.bodyLarge)
+            Slider(
+                value = activity.bassBoostStrength.toFloat(),
+                onValueChange = { activity.setBassBoostStrength(it.toInt()) },
+                valueRange = 0f..1000f,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            Text("Virtualizer сила", style = MaterialTheme.typography.bodyLarge)
+            Slider(
+                value = activity.virtualizerStrength.toFloat(),
+                onValueChange = { activity.setVirtualizerStrength(it.toInt()) },
+                valueRange = 0f..1000f,
+                modifier = Modifier.fillMaxWidth(),
+            )
             Spacer(Modifier.height(8.dp))
             FilledTonalButton(onClick = { activity.showSettings = false }) {
                 Text("Закрыть")
@@ -1320,7 +1356,9 @@ class MainActivity : ComponentActivity() {
     var eqEnabled by mutableStateOf(false)
     var eqBands by mutableStateOf(emptyList<Int>())
     var bassBoostEnabled by mutableStateOf(false)
+    var bassBoostStrength by mutableStateOf(500)
     var virtualizerEnabled by mutableStateOf(false)
+    var virtualizerStrength by mutableStateOf(500)
 
     private val prefs by lazy { getSharedPreferences("player", Context.MODE_PRIVATE) }
 
@@ -1670,18 +1708,22 @@ class MainActivity : ComponentActivity() {
             equalizer = Equalizer(0, sessionId).apply {
                 enabled = eqEnabled
             }
-            eqBands = (0 until (equalizer?.numberOfBands ?: 0)).map { 0 }
+            eqBands = (0 until (equalizer?.numberOfBands ?: 0)).map { b ->
+                try { equalizer?.getBandLevel(b.toShort())?.toInt() ?: 0 } catch (_: Exception) { 0 }
+            }
         } catch (_: Exception) {
         }
         try {
             bassBoost = BassBoost(0, sessionId).apply {
                 enabled = bassBoostEnabled
+                try { setStrength(bassBoostStrength.toShort()) } catch (_: Exception) {}
             }
         } catch (_: Exception) {
         }
         try {
             virtualizer = Virtualizer(0, sessionId).apply {
                 enabled = virtualizerEnabled
+                try { setStrength(virtualizerStrength.toShort()) } catch (_: Exception) {}
             }
         } catch (_: Exception) {
         }
@@ -1696,6 +1738,32 @@ class MainActivity : ComponentActivity() {
         virtualizer = null
     }
 
+    fun setEqBand(band: Int, level: Int) {
+        try { equalizer?.setBandLevel(band.toShort(), level.toShort()) } catch (_: Exception) {}
+        eqBands = eqBands.toMutableList().apply { if (band in indices) this[band] = level }
+    }
+
+    fun setBassBoostStrength(strength: Int) {
+        bassBoostStrength = strength
+        try { bassBoost?.setStrength(strength.toShort()) } catch (_: Exception) {}
+    }
+
+    fun setVirtualizerStrength(strength: Int) {
+        virtualizerStrength = strength
+        try { virtualizer?.setStrength(strength.toShort()) } catch (_: Exception) {}
+    }
+
+    fun equalizerBands(): List<Int> =
+        (0 until (equalizer?.numberOfBands ?: 0)).toList()
+
+    fun eqBandRange(): IntArray =
+        equalizer?.getBandLevelRange() ?: intArrayOf(-1500, 1500)
+
+    fun eqBandFreq(band: Int): String {
+        val hz = (equalizer?.getCenterFreq(band.toShort()) ?: 0) / 1000
+        return if (hz >= 1000) "${hz / 1000}k" else "$hz"
+    }
+
     fun toggleEq(enabled: Boolean) {
         eqEnabled = enabled
         equalizer?.enabled = enabled
@@ -1704,11 +1772,13 @@ class MainActivity : ComponentActivity() {
     fun toggleBassBoost(enabled: Boolean) {
         bassBoostEnabled = enabled
         bassBoost?.enabled = enabled
+        if (enabled) try { bassBoost?.setStrength(bassBoostStrength.toShort()) } catch (_: Exception) {}
     }
 
     fun toggleVirtualizer(enabled: Boolean) {
         virtualizerEnabled = enabled
         virtualizer?.enabled = enabled
+        if (enabled) try { virtualizer?.setStrength(virtualizerStrength.toShort()) } catch (_: Exception) {}
     }
 
     // ---- Volume ----
