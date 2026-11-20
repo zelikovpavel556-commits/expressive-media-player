@@ -1242,7 +1242,7 @@ fun SettingsSheet(activity: MainActivity) {
             Text("BassBoost сила", style = MaterialTheme.typography.bodyLarge)
             Slider(
                 value = activity.bassBoostStrength.toFloat(),
-                onValueChange = { activity.setBassBoostStrength(it.toInt()) },
+                onValueChange = { activity.applyBassBoostStrength(it.toInt()) },
                 valueRange = 0f..1000f,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -1250,7 +1250,7 @@ fun SettingsSheet(activity: MainActivity) {
             Text("Virtualizer сила", style = MaterialTheme.typography.bodyLarge)
             Slider(
                 value = activity.virtualizerStrength.toFloat(),
-                onValueChange = { activity.setVirtualizerStrength(it.toInt()) },
+                onValueChange = { activity.applyVirtualizerStrength(it.toInt()) },
                 valueRange = 0f..1000f,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -1743,12 +1743,12 @@ class MainActivity : ComponentActivity() {
         eqBands = eqBands.toMutableList().apply { if (band in indices) this[band] = level }
     }
 
-    fun setBassBoostStrength(strength: Int) {
+    fun applyBassBoostStrength(strength: Int) {
         bassBoostStrength = strength
         try { bassBoost?.setStrength(strength.toShort()) } catch (_: Exception) {}
     }
 
-    fun setVirtualizerStrength(strength: Int) {
+    fun applyVirtualizerStrength(strength: Int) {
         virtualizerStrength = strength
         try { virtualizer?.setStrength(strength.toShort()) } catch (_: Exception) {}
     }
