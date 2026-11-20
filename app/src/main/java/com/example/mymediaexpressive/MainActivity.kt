@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
@@ -38,10 +40,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -66,7 +68,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -120,6 +123,7 @@ fun ExpressivePlayerApp() {
         2 -> true
         else -> androidx.compose.foundation.isSystemInDarkTheme()
     }
+
     ExpressiveMediaTheme(darkTheme = darkTheme) {
         if (!permissionGranted) {
             Box(
@@ -148,6 +152,9 @@ fun ExpressivePlayerApp() {
                 TopAppBar(
                     title = { Text("Музыка", style = MaterialTheme.typography.titleLarge) },
                     actions = {
+                        TextButton(onClick = { activity.showQueue = true }) {
+                            Text("Очередь")
+                        }
                         TextButton(onClick = { activity.showSettings = true }) {
                             Text("Настр.")
                         }
@@ -166,27 +173,19 @@ fun ExpressivePlayerApp() {
                     .background(MaterialTheme.colorScheme.surface)
                     .padding(padding),
             ) {
-                TabRow(selectedTabIndex = activity.selectedTab) {
-                    Tab(
-                        selected = activity.selectedTab == 0,
-                        onClick = { activity.selectedTab = 0 },
-                        text = { Text("Вся музыка") },
-                    )
-                    Tab(
-                        selected = activity.selectedTab == 1,
-                        onClick = { activity.selectedTab = 1 },
-                        text = { Text("Плейлисты") },
-                    )
-                    Tab(
-                        selected = activity.selectedTab == 2,
-                        onClick = { activity.selectedTab = 2 },
-                        text = { Text("Избранное") },
-                    )
+                ScrollableTabRow(selectedTabIndex = activity.selectedTab) {
+                    Tab(selected = activity.selectedTab == 0, onClick = { activity.selectedTab = 0 }, text = { Text("Вся музыка") })
+                    Tab(selected = activity.selectedTab == 1, onClick = { activity.selectedTab = 1 }, text = { Text("Плейлисты") })
+                    Tab(selected = activity.selectedTab == 2, onClick = { activity.selectedTab = 2 }, text = { Text("Избранное") })
+                    Tab(selected = activity.selectedTab == 3, onClick = { activity.selectedTab = 3 }, text = { Text("Недавние") })
+                    Tab(selected = activity.selectedTab == 4, onClick = { activity.selectedTab = 4 }, text = { Text("Альбомы") })
                 }
                 when (activity.selectedTab) {
                     0 -> MusicList(activity)
                     1 -> PlaylistsTab(activity)
                     2 -> FavoritesTab(activity)
+                    3 -> RecentTab(activity)
+                    4 -> AlbumsTab(activity)
                 }
             }
         }
@@ -196,6 +195,12 @@ fun ExpressivePlayerApp() {
         }
         if (activity.showSettings) {
             SettingsSheet(activity)
+        }
+        if (activity.showQueue) {
+            QueueSheet(activity)
+        }
+        if (activity.contextTrack != null) {
+            ContextMenu(activity)
         }
     }
 }
@@ -227,6 +232,10 @@ fun MusicList(activity: MainActivity) {
             }
             TextButton(onClick = { activity.sortMode = 2 }) {
                 Text(if (activity.sortMode == 2) "✓ Длительность" else "Длительность")
+            }
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = { activity.shuffleAll() }) {
+                Text("Перемешать")
             }
         }
         if (tracks.isEmpty()) {
@@ -261,6 +270,7 @@ fun MusicList(activity: MainActivity) {
                                 isCurrent = track.id == activity.currentTrack()?.id,
                                 isFavorite = activity.isFavorite(track.id),
                                 onClick = { activity.playTrack(track) },
+                                onLongClick = { activity.contextTrack = track },
                                 onFavorite = { activity.toggleFavorite(track.id) },
                             )
                             if (index < tracks.lastIndex) {
@@ -284,11 +294,13 @@ fun TrackRow(
     isCurrent: Boolean,
     isFavorite: Boolean,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     onFavorite: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .pointerInput(Unit) { detectTapGestures(onLongPress = { onLongClick() }) }
             .clickable(onClick = onClick)
             .background(
                 if (isCurrent) MaterialTheme.colorScheme.primaryContainer
@@ -403,27 +415,19 @@ fun PlaylistsTab(activity: MainActivity) {
                         }
                     }
                 }
-            }
-        }
-        if (activity.openedPlaylistIndex >= 0) {
-            val pl = playlists.getOrNull(activity.openedPlaylistIndex)
-            if (pl != null) {
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    text = "Треки: ${pl.name}",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                val plTracks = activity.tracks.filter { it.id in pl.trackIds }
-                LazyColumn {
-                    itemsIndexed(plTracks) { _, track ->
-                        TrackRow(
-                            track = track,
-                            isCurrent = track.id == activity.currentTrack()?.id,
-                            isFavorite = activity.isFavorite(track.id),
-                            onClick = { activity.playTrack(track) },
-                            onFavorite = { activity.toggleFavorite(track.id) },
-                        )
+                if (activity.openedPlaylistIndex == index) {
+                    val plTracks = activity.tracks.filter { it.id in pl.trackIds }
+                    Column(modifier = Modifier.padding(start = 8.dp)) {
+                        plTracks.forEach { track ->
+                            TrackRow(
+                                track = track,
+                                isCurrent = track.id == activity.currentTrack()?.id,
+                                isFavorite = activity.isFavorite(track.id),
+                                onClick = { activity.playTrack(track) },
+                                onLongClick = { activity.contextTrack = track },
+                                onFavorite = { activity.toggleFavorite(track.id) },
+                            )
+                        }
                     }
                 }
             }
@@ -466,6 +470,7 @@ fun FavoritesTab(activity: MainActivity) {
                             isCurrent = track.id == activity.currentTrack()?.id,
                             isFavorite = true,
                             onClick = { activity.playTrack(track) },
+                            onLongClick = { activity.contextTrack = track },
                             onFavorite = { activity.toggleFavorite(track.id) },
                         )
                         if (index < favTracks.lastIndex) {
@@ -475,6 +480,132 @@ fun FavoritesTab(activity: MainActivity) {
                                 modifier = Modifier.padding(horizontal = 16.dp),
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RecentTab(activity: MainActivity) {
+    val recentTracks = activity.recentTrackObjects()
+    if (recentTracks.isEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "Недавно воспроизведённых нет",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        return
+    }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+    ) {
+        item {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column {
+                    recentTracks.forEachIndexed { index, track ->
+                        TrackRow(
+                            track = track,
+                            isCurrent = track.id == activity.currentTrack()?.id,
+                            isFavorite = activity.isFavorite(track.id),
+                            onClick = { activity.playTrack(track) },
+                            onLongClick = { activity.contextTrack = track },
+                            onFavorite = { activity.toggleFavorite(track.id) },
+                        )
+                        if (index < recentTracks.lastIndex) {
+                            HorizontalDivider(
+                                thickness = 0.5.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AlbumsTab(activity: MainActivity) {
+    val albums = activity.tracks.groupBy { it.albumId }
+    if (albums.isEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "Альбомов нет",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        return
+    }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+    ) {
+        items(albums.entries.toList()) { (albumId, tracks) ->
+            val first = tracks.first()
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .clickable { activity.playTrack(first) },
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AsyncImage(
+                        model = albumArtUri(albumId),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(RoundedCornerShape(12.dp)),
+                        contentScale = ContentScale.Crop,
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = first.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = first.artist,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = "${tracks.size} треков",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
@@ -671,9 +802,116 @@ fun FullPlayer(activity: MainActivity) {
                         else "Sleep ${activity.sleepTimerMinutes}m",
                     )
                 }
+                FilledTonalButton(onClick = { activity.showQueue = true }) {
+                    Text("Очередь")
+                }
             }
             Spacer(Modifier.weight(1f))
             FilledTonalButton(onClick = { activity.showPlayer = false }) {
+                Text("Закрыть")
+            }
+        }
+    }
+}
+
+@Composable
+fun QueueSheet(activity: MainActivity) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+        ) {
+            Text(
+                text = "Очередь воспроизведения",
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(12.dp))
+            if (activity.queueIds.isEmpty()) {
+                Text(
+                    text = "Очередь пуста",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                LazyColumn {
+                    items(activity.queueIds) { id ->
+                        val t = activity.tracks.firstOrNull { it.id == id }
+                        if (t != null) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = t.title,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = { activity.removeFromQueue(id) }) {
+                                    Text("Убрать")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                FilledTonalButton(onClick = { activity.clearQueue() }) {
+                    Text("Очистить")
+                }
+                FilledTonalButton(onClick = { activity.showQueue = false }) {
+                    Text("Закрыть")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ContextMenu(activity: MainActivity) {
+    val track = activity.contextTrack ?: return
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+        ) {
+            Text(
+                text = track.title,
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(16.dp))
+            FilledTonalButton(onClick = { activity.playTrack(track); activity.contextTrack = null }) {
+                Text("Воспроизвести")
+            }
+            Spacer(Modifier.height(8.dp))
+            FilledTonalButton(onClick = { activity.playNext(track); activity.contextTrack = null }) {
+                Text("Воспроизвести следующим")
+            }
+            Spacer(Modifier.height(8.dp))
+            FilledTonalButton(onClick = { activity.addToQueue(track); activity.contextTrack = null }) {
+                Text("Добавить в очередь")
+            }
+            Spacer(Modifier.height(8.dp))
+            FilledTonalButton(onClick = { activity.toggleFavorite(track.id); activity.contextTrack = null }) {
+                Text(if (activity.isFavorite(track.id)) "Убрать из избранного" else "В избранное")
+            }
+            Spacer(Modifier.height(8.dp))
+            FilledTonalButton(onClick = { activity.contextTrack = null }) {
                 Text("Закрыть")
             }
         }
@@ -724,6 +962,10 @@ fun SettingsSheet(activity: MainActivity) {
             Spacer(Modifier.height(16.dp))
             FilledTonalButton(onClick = { activity.loadTracks() }) {
                 Text("Пересканировать музыку")
+            }
+            Spacer(Modifier.height(8.dp))
+            FilledTonalButton(onClick = { activity.clearRecent() }) {
+                Text("Очистить недавние")
             }
             Spacer(Modifier.height(8.dp))
             FilledTonalButton(onClick = { activity.showSettings = false }) {
@@ -782,6 +1024,8 @@ private fun formatTime(millis: Long): String {
     }
 }
 
+data class Playlist(val name: String, val trackIds: MutableList<Long> = mutableListOf())
+
 class MainActivity : ComponentActivity() {
 
     private var player: MediaPlayer? = null
@@ -795,6 +1039,8 @@ class MainActivity : ComponentActivity() {
     var durationMs by mutableStateOf(0L)
     var showPlayer by mutableStateOf(false)
     var showSettings by mutableStateOf(false)
+    var showQueue by mutableStateOf(false)
+    var contextTrack by mutableStateOf<Track?>(null)
     var searchQuery by mutableStateOf("")
     var sortMode by mutableStateOf(0)
     var shuffleEnabled by mutableStateOf(false)
@@ -806,6 +1052,8 @@ class MainActivity : ComponentActivity() {
     var openedPlaylistIndex by mutableStateOf(-1)
     var playlists by mutableStateOf(emptyList<Playlist>())
     var favorites by mutableStateOf(emptySet<Long>())
+    var queueIds by mutableStateOf(emptyList<Long>())
+    var recentIds by mutableStateOf(emptyList<Long>())
 
     private val prefs by lazy { getSharedPreferences("player", Context.MODE_PRIVATE) }
 
@@ -902,13 +1150,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    fun currentTrack(): Track? = tracks.getOrNull(currentTrackIndex)
+    fun currentTrack(): Track? {
+        // find by index in tracks
+        return tracks.getOrNull(currentTrackIndex)
+    }
 
     fun playTrack(track: Track) {
         val idx = tracks.indexOfFirst { it.id == track.id }
         if (idx < 0) return
         currentTrackIndex = idx
         startPlayback(track)
+        recordRecent(track.id)
     }
 
     private fun startPlayback(track: Track) {
@@ -931,7 +1183,6 @@ class MainActivity : ComponentActivity() {
     private fun onTrackCompleted() {
         when (repeatMode) {
             2 -> {
-                // repeat one
                 currentTrack()?.let { startPlayback(it) }
             }
             else -> {
@@ -1027,11 +1278,14 @@ class MainActivity : ComponentActivity() {
             45 -> 60
             else -> 0
         }
+        if (sleepTimerMinutes == 0) sleepTimerEnd = 0L
+        else sleepTimerEnd = System.currentTimeMillis() + sleepTimerMinutes * 60_000L
     }
+
+    private var sleepTimerEnd: Long = 0L
 
     private fun checkSleepTimer() {
         if (sleepTimerMinutes == 0) return
-        // simple: stop after minutes from first set; track via a stored end time
         if (sleepTimerEnd == 0L) {
             sleepTimerEnd = System.currentTimeMillis() + sleepTimerMinutes * 60_000L
         }
@@ -1043,9 +1297,45 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private var sleepTimerEnd: Long = 0L
+    fun shuffleAll() {
+        if (tracks.isEmpty()) return
+        val shuffled = tracks.shuffled()
+        // play first of shuffled by reordering? Just play random
+        playTrack(shuffled.first())
+    }
 
-    // ---- Playlists (local) ----
+    // ---- Queue ----
+    fun playNext(track: Track) {
+        queueIds = listOf(track.id) + queueIds
+    }
+
+    fun addToQueue(track: Track) {
+        queueIds = queueIds + track.id
+    }
+
+    fun removeFromQueue(id: Long) {
+        queueIds = queueIds.filter { it != id }
+    }
+
+    fun clearQueue() {
+        queueIds = emptyList()
+    }
+
+    // ---- Recent ----
+    private fun recordRecent(id: Long) {
+        recentIds = (listOf(id) + recentIds.filter { it != id }).take(30)
+        savePrefs()
+    }
+
+    fun recentTrackObjects(): List<Track> =
+        recentIds.mapNotNull { id -> tracks.firstOrNull { it.id == id } }
+
+    fun clearRecent() {
+        recentIds = emptyList()
+        savePrefs()
+    }
+
+    // ---- Playlists ----
     data class Playlist(val name: String, val trackIds: MutableList<Long> = mutableListOf())
 
     fun createPlaylist() {
@@ -1083,6 +1373,11 @@ class MainActivity : ComponentActivity() {
             list.add(pl)
         }
         playlists = list
+        val rq = prefs.getString("recent", "[]") ?: "[]"
+        val rarr = JSONArray(rq)
+        val rlist = mutableListOf<Long>()
+        for (i in 0 until rarr.length()) rlist.add(rarr.getLong(i))
+        recentIds = rlist
     }
 
     private fun savePrefs() {
@@ -1099,6 +1394,9 @@ class MainActivity : ComponentActivity() {
                 arr.put(o)
             }
             putString("playlists", arr.toString())
+            val rarr = JSONArray()
+            recentIds.forEach { rarr.put(it) }
+            putString("recent", rarr.toString())
             apply()
         }
     }
